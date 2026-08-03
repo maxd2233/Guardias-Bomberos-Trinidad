@@ -74,6 +74,16 @@ export function sumarDias(fechaISO: string, dias: number): string {
   return fecha.toISOString().slice(0, 10);
 }
 
+/** Fechas a consultar en la BD: la ventana visible más el día anterior al inicio,
+ *  necesario para la guardia nocturna (23:00-08:00) que queda activa entre las
+ *  00:00 y 07:59 (p. ej. el domingo previo, un lunes de madrugada). */
+export function fechasAConsultar(dias: readonly string[]): string[] {
+  if (dias.length === 0) return [];
+  const conjunto = new Set<string>(dias);
+  conjunto.add(sumarDias(dias[0], -1));
+  return Array.from(conjunto);
+}
+
 /** Lunes de la semana calendario a la que pertenece una fecha "YYYY-MM-DD". */
 export function lunesDeSemana(fechaISO: string): string {
   const [anio, mes, dia] = fechaISO.split("-").map(Number);

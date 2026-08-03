@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createSupabaseClient } from "@/lib/supabase";
 import { getSession } from "@/lib/session";
 import {
+  fechasAConsultar,
   formatFechaKey,
   hoyArgentina,
   lunesDeSemana,
@@ -60,7 +61,7 @@ export default async function TableroPage() {
   const { data: turnosData } = await supabase
     .from("turnos")
     .select("id, fecha, franja, bombero_id")
-    .in("fecha", dias.map((dia) => dia.key));
+    .in("fecha", fechasAConsultar(dias.map((dia) => dia.key)));
 
   return (
     <Tablero

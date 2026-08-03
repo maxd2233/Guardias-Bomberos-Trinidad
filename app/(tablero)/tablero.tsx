@@ -11,6 +11,7 @@ import type { SessionBombero } from "@/lib/auth";
 import { createBrowserSupabaseClient } from "@/lib/supabase-browser";
 import {
   FRANJAS,
+  fechasAConsultar,
   franjaActual,
   franjaCorta,
   franjaHora,
@@ -82,7 +83,7 @@ export function Tablero({
       const { data } = await getClient()
         .from("turnos")
         .select("id, fecha, franja, bombero_id")
-        .in("fecha", dias.map((dia) => dia.key));
+        .in("fecha", fechasAConsultar(dias.map((dia) => dia.key)));
       if (data) setTurnos(normalizeTurnos(data));
     } catch (err) {
       console.error("No se pudo refrescar el tablero:", err);
