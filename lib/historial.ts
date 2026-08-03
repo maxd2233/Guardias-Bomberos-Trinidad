@@ -110,8 +110,7 @@ export async function cargarHistorial(
   const bomberos: Record<string, string> = {};
   const { data: bomberosData } = await client
     .from("bomberos")
-    .select("id, nombre_completo")
-    .eq("activo", true);
+    .select("id, nombre_completo");
   for (const b of bomberosData ?? []) {
     const row = b as Record<string, unknown>;
     if (

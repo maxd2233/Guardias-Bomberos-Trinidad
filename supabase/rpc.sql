@@ -76,6 +76,12 @@ as $$
 declare
   v_turno_id uuid;
 begin
+  if not exists (
+    select 1 from public.bomberos where id = p_bombero_id and activo
+  ) then
+    raise exception using errcode = 'P0001', message = 'BOMBERO_INACTIVO';
+  end if;
+
   if p_franja not in ('08:00-13:00', '13:00-18:00', '18:00-23:00', '23:00-08:00') then
     raise exception using errcode = 'P0001', message = 'FRANJA_INVALIDA';
   end if;
@@ -119,6 +125,12 @@ as $$
 declare
   v_id uuid;
 begin
+  if not exists (
+    select 1 from public.bomberos where id = p_bombero_id and activo
+  ) then
+    raise exception using errcode = 'P0001', message = 'BOMBERO_INACTIVO';
+  end if;
+
   -- Bloquea la fila para evitar cancelaciones dobles en paralelo.
   select id into v_id
   from public.turnos
@@ -160,6 +172,12 @@ as $$
 declare
   v_turno_nuevo_id uuid;
 begin
+  if not exists (
+    select 1 from public.bomberos where id = p_bombero_id and activo
+  ) then
+    raise exception using errcode = 'P0001', message = 'BOMBERO_INACTIVO';
+  end if;
+
   if p_franja not in ('08:00-13:00', '13:00-18:00', '18:00-23:00', '23:00-08:00') then
     raise exception using errcode = 'P0001', message = 'FRANJA_INVALIDA';
   end if;
@@ -285,6 +303,21 @@ security definer
 set search_path = public
 as $$
 begin
+  if not exists (select 1 from public.bomberos where id = p_bombero_id and activo) then
+    return false;
+  end if;
+
+  -- No se puede dar de baja al último oficial activo (Oficial Principal o
+  -- Ayudante): nadie podría entrar más al panel de administración.
+  if (select cargo from public.bomberos where id = p_bombero_id)
+     in ('Oficial Principal', 'Oficial Ayudante') then
+    if (select count(*)
+        from public.bomberos
+        where activo and cargo in ('Oficial Principal', 'Oficial Ayudante')) <= 1 then
+      raise exception using errcode = 'P0001', message = 'ULTIMO_OFICIAL';
+    end if;
+  end if;
+
   -- Libera las guardias anotadas del bombero para que las celdas queden
   -- libres y no queden "fantasmas" ocupando el tablero (el bombero dado
   -- de baja ya no puede cancelarlas por sí mismo).

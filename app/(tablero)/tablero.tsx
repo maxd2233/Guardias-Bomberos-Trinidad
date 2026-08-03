@@ -52,12 +52,13 @@ function legajoLabel(numero: number) {
 
 export function Tablero({
   session,
-  bomberos,
+  bomberos: bomberosIniciales,
   turnos: turnosIniciales,
   dias,
   hoyKey,
 }: TableroProps) {
   const [turnos, setTurnos] = useState(turnosIniciales);
+  const [roster, setRoster] = useState(bomberosIniciales);
   const [dialogo, setDialogo] = useState<Dialogo>(null);
   const [pendiente, setPendiente] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +90,34 @@ export function Tablero({
       console.error("No se pudo refrescar el tablero:", err);
     }
   }, [dias, getClient]);
+
+  const refrescarBomberos = useCallback(async () => {
+    try {
+      const { data } = await getClient()
+        .from("bomberos")
+        .select("id, numero_ingreso, nombre_completo, cargo")
+        .eq("activo", true);
+      const mapa: Record<string, RosterBombero> = {};
+      for (const b of data ?? []) {
+        const r = b as Record<string, unknown>;
+        if (
+          typeof r.id === "string" &&
+          typeof r.numero_ingreso === "number" &&
+          typeof r.nombre_completo === "string" &&
+          typeof r.cargo === "string"
+        ) {
+          mapa[r.id] = {
+            numero_ingreso: r.numero_ingreso,
+            nombre_completo: r.nombre_completo,
+            cargo: r.cargo,
+          };
+        }
+      }
+      setRoster(mapa);
+    } catch (err) {
+      console.error("No se pudo refrescar el padrón:", err);
+    }
+  }, [getClient]);
 
   useEffect(() => {
     const update = () =>
@@ -125,6 +154,13 @@ export function Tablero({
             void refrescar();
           }
         )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "bomberos" },
+          () => {
+            void refrescarBomberos();
+          }
+        )
         .subscribe();
     } catch (err) {
       console.error("No se pudo conectar a Realtime:", err);
@@ -132,7 +168,7 @@ export function Tablero({
     return () => {
       if (channel) getClient().removeChannel(channel);
     };
-  }, [getClient, refrescar]);
+  }, [getClient, refrescar, refrescarBomberos]);
 
   const porCelda = useMemo(() => {
     const mapa = new Map<string, TurnoCelda>();
@@ -145,7 +181,7 @@ export function Tablero({
     return porCelda.get(`${actual.fechaKey}|${actual.franja}`) ?? null;
   }, [actual, porCelda]);
   const bomberoActual = turnoActual
-    ? bomberos[turnoActual.bombero_id]
+    ? roster[turnoActual.bombero_id]
     : null;
 
   const opcionesCambio = useMemo(() => {
@@ -236,7 +272,7 @@ export function Tablero({
     const diaPasado = dia.key < hoyKey;
 
     if (diaPasado) {
-      const bombero = turno ? bomberos[turno.bombero_id] : null;
+      const bombero = turno ? roster[turno.bombero_id] : null;
       return (
         <Card key={franja} className="bg-bg p-3 opacity-60">
           <div className="flex h-full min-h-[7.5rem] flex-col justify-between gap-3">
@@ -307,7 +343,7 @@ export function Tablero({
     }
 
     if (turno) {
-      const bombero = bomberos[turno.bombero_id];
+      const bombero = roster[turno.bombero_id];
       return (
         <Card key={franja} stamped className="p-3">
           <div className="flex h-full min-h-[7.5rem] flex-col justify-between gap-3">
@@ -356,7 +392,7 @@ export function Tablero({
     const diaPasado = dia.key < hoyKey;
 
     if (diaPasado) {
-      const bombero = turno ? bomberos[turno.bombero_id] : null;
+      const bombero = turno ? roster[turno.bombero_id] : null;
       return (
         <div key={franja} className="px-4 py-3 opacity-60">
           <div className="flex items-center justify-between gap-3">
@@ -379,7 +415,7 @@ export function Tablero({
     }
 
     if (turno) {
-      const bombero = bomberos[turno.bombero_id];
+      const bombero = roster[turno.bombero_id];
       return (
         <div key={franja} className="relative px-4 py-3">
           <Image

@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { createServiceRoleClient } from "@/lib/supabase";
-import { isFranja } from "@/lib/tablero";
+import { hoyArgentina, isFranja } from "@/lib/tablero";
 
 export type TurnoResult = { ok: true } | { ok: false; error: string };
 
@@ -27,6 +27,8 @@ function mapRpcError(err: unknown): string {
           return MSG_TURNO_TOMADO;
         case "TURNO_NO_PERTENECE":
           return "Ese turno ya no te corresponde.";
+        case "BOMBERO_INACTIVO":
+          return "Tu usuario está dado de baja y no puede anotarse. Avisale a la comisión directiva.";
         default:
           break;
       }
@@ -45,6 +47,9 @@ export async function anotarTurno(
 
   if (!fechaValida(fecha) || !isFranja(franja)) {
     return { ok: false, error: "Datos de turno inválidos." };
+  }
+  if (fecha < hoyArgentina()) {
+    return { ok: false, error: "No podés anotarte en una fecha pasada." };
   }
 
   const { error } = await createServiceRoleClient().rpc("anotar_turno", {
@@ -87,6 +92,9 @@ export async function cambiarTurno(
 
   if (!UUID_RE.test(turnoId) || !fechaValida(fecha) || !isFranja(franja)) {
     return { ok: false, error: "Datos de turno inválidos." };
+  }
+  if (fecha < hoyArgentina()) {
+    return { ok: false, error: "No podés cambiar a una fecha pasada." };
   }
 
   const { error } = await createServiceRoleClient().rpc("cambiar_turno", {

@@ -62,6 +62,12 @@ export async function darDeBajaBombero(bomberoId: string): Promise<AdminResult> 
     p_bombero_id: bomberoId,
   });
   if (error) {
+    if (error.code === "P0001" && error.message === "ULTIMO_OFICIAL") {
+      return {
+        ok: false,
+        error: "No podés dar de baja al último oficial del cuartel.",
+      };
+    }
     console.error("Error de RPC dar_de_baja_bombero:", error);
     return { ok: false, error: "Ocurrió un error. Intentá de nuevo." };
   }
