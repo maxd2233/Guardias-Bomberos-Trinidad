@@ -11,7 +11,7 @@ create extension if not exists pgcrypto;
 -- ============================================================
 create table if not exists public.bomberos (
   id              uuid primary key default gen_random_uuid(),
-  numero_ingreso  integer not null unique,
+  numero_ingreso  integer not null,
   nombre_completo text    not null,
   cargo           text    not null check (
                     cargo in (
@@ -25,6 +25,15 @@ create table if not exists public.bomberos (
   activo          boolean not null default true,
   created_at      timestamptz not null default now()
 );
+
+-- El legajo debe ser único entre bomberos ACTIVOS: un bombero dado de baja
+-- (activo = false) libera su número para poder re-ingresar a otra persona
+-- con el mismo legajo. Idempotente para bases existentes (antes era UNIQUE
+-- global: bomberos_numero_ingreso_key).
+alter table public.bomberos drop constraint if exists bomberos_numero_ingreso_key;
+create unique index if not exists bomberos_numero_activo_uniq
+  on public.bomberos (numero_ingreso)
+  where activo;
 
 -- ============================================================
 -- Tabla: turnos

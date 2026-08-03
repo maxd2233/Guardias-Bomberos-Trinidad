@@ -23,4 +23,4 @@ values
   (4,  'NOMBRE APELLIDO',  'Bombero'),
   (5,  'NOMBRE APELLIDO',  'Bombero'),
   (6,  'NOMBRE APELLIDO',  'Aspirante')
-on conflict (numero_ingreso) do nothing;
+on conflict (numero_ingreso) where activo do nothing;

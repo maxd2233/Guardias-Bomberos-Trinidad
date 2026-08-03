@@ -285,6 +285,13 @@ security definer
 set search_path = public
 as $$
 begin
+  -- Libera las guardias anotadas del bombero para que las celdas queden
+  -- libres y no queden "fantasmas" ocupando el tablero (el bombero dado
+  -- de baja ya no puede cancelarlas por sí mismo).
+  update public.turnos
+  set bombero_id = null
+  where bombero_id = p_bombero_id;
+
   update public.bomberos
   set activo = false
   where id = p_bombero_id;
