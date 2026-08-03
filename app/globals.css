@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Sistema de diseño — Bomberos Voluntarios La Trinidad
+   Tokens de color (variables CSS) y tipografía (Tailwind v4 @theme)
+   ============================================================ */
+
+:root {
+  /* Fondo general: blanco grisáceo frío tipo pared de cuartel */
+  --color-bg: #edefec;
+  /* Tarjetas y tablero */
+  --color-surface: #ffffff;
+  /* Texto principal: casi negro con tinte verdoso */
+  --color-ink: #1c2321;
+  /* Rojo bombero: CTAs primarios, acentos, "Anotarme" */
+  --color-fire: #c8102e;
+  /* Rojo bombero en hover/activo */
+  --color-fire-dark: #a30d25;
+  /* Latón: SOLO "confirmado"/asignado, nunca decorativo genérico */
+  --color-brass: #a9823e;
+  /* Ámbar: SOLO "guardia activa ahora" y alertas */
+  --color-alarm: #e8a33d;
+  /* Neutros derivados de la paleta (bordes, texto secundario) */
+  --color-line: #d9deda;
+  --color-ink-muted: #56615c;
+}
+
+@theme inline {
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-ink: var(--color-ink);
+  --color-fire: var(--color-fire);
+  --color-fire-dark: var(--color-fire-dark);
+  --color-brass: var(--color-brass);
+  --color-alarm: var(--color-alarm);
+  --color-line: var(--color-line);
+  --color-ink-muted: var(--color-ink-muted);
+
+  --font-sans: var(--font-source-sans);
+  --font-display: var(--font-oswald);
+  --font-mono: var(--font-plex-mono);
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-source-sans), system-ui, sans-serif;
+    font-size: 17px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Foco visible por teclado en toda la app: anillo rojo con offset */
+  :focus-visible {
+    outline: 2px solid var(--color-fire);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background-color: var(--color-fire);
+    color: var(--color-surface);
+  }
+}
+
+@layer components {
+  /* Encabezados de turno, títulos de día, números: Oswald en mayúsculas,
+     con tracking amplio, como la numeración de un camión de bomberos */
+  .heading-display {
+    font-family: var(--font-oswald), sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+  }
+}
+
+/* Respeto por prefers-reduced-motion: sin animaciones ni transiciones
+   perceptibles para quienes las desactivan */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
