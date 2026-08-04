@@ -6,7 +6,7 @@ export type RosterBombero = {
 };
 
 function formatLegajo(numero: number) {
-  return String(numero).padStart(4, "0");
+  return String(numero).padStart(3, "0");
 }
 
 export function RosterList({ bomberos }: { bomberos: RosterBombero[] }) {

@@ -26,7 +26,7 @@ export function LoginForm() {
           pattern="[0-9]*"
           autoComplete="off"
           autoFocus
-          placeholder="Ej.: 0042"
+          placeholder="Ej.: 042"
           aria-invalid={state.error ? true : undefined}
           aria-describedby={state.error ? "login-error" : undefined}
           className="mt-2 h-16 w-full rounded-[10px] border border-ink/30 bg-surface px-4 text-center text-2xl font-semibold tracking-[0.2em] text-ink placeholder:tracking-normal placeholder:text-ink-muted/60 focus:border-fire"

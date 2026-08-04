@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { createSupabaseClient } from "@/lib/supabase";
 import { getSession } from "@/lib/session";
+import { leerCupoMaximo } from "@/lib/configuracion";
 import {
   fechasAConsultar,
   formatFechaKey,
@@ -38,6 +39,8 @@ export default async function TableroPage() {
 
   const supabase = createSupabaseClient();
 
+  const cupoMaximo = await leerCupoMaximo(supabase);
+
   const bomberos: Record<string, BomberoRoster> = {};
   const { data: bomberosData } = await supabase
     .from("bomberos")
@@ -70,6 +73,7 @@ export default async function TableroPage() {
       turnos={normalizeTurnos(turnosData ?? [])}
       dias={dias}
       hoyKey={hoyKey}
+      cupoMaximo={cupoMaximo}
     />
   );
 }

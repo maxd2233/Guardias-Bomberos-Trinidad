@@ -21,6 +21,11 @@ export type TurnoCelda = {
   bombero_id: string;
 };
 
+/** Clave canónica de una celda (fecha + franja) para agrupar anotaciones. */
+export function celdaKey(fecha: string, franja: Franja): string {
+  return `${fecha}|${franja}`;
+}
+
 /** Filtra filas de Supabase dejando solo turnos válidos (shape conocido). */
 export function normalizeTurnos(rows: unknown[]): TurnoCelda[] {
   const resultado: TurnoCelda[] = [];

@@ -163,7 +163,7 @@ export function Admin({ bomberos }: { bomberos: RosterBombero[] }) {
                         {b.nombre_completo}
                       </p>
                       <p className="mt-0.5 font-mono text-[13px] text-ink-muted">
-                        Legajo N° {String(b.numero_ingreso).padStart(4, "0")}
+                        Legajo N° {String(b.numero_ingreso).padStart(3, "0")}
                       </p>
                     </div>
                     {isCargo(b.cargo) ? <Badge cargo={b.cargo} /> : null}

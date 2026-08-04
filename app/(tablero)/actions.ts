@@ -4,10 +4,9 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { createServiceRoleClient } from "@/lib/supabase";
 import { hoyArgentina, isFranja } from "@/lib/tablero";
+import { CUPO_MAXIMO_TURNOS } from "@/lib/configuracion";
 
 export type TurnoResult = { ok: true } | { ok: false; error: string };
-
-const MSG_TURNO_TOMADO = "Alguien se anotó primero en este turno, elegí otro";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -20,13 +19,19 @@ function fechaValida(fecha: string): boolean {
 function mapRpcError(err: unknown): string {
   if (err && typeof err === "object") {
     const e = err as { code?: string; message?: string };
-    if (e.code === "23505") return MSG_TURNO_TOMADO;
+    if (e.code === "23505") return "Ya estás anotado en este turno.";
     if (e.code === "P0001") {
       switch (e.message) {
-        case "CELDA_OCUPADA":
-          return MSG_TURNO_TOMADO;
+        case "CUPO_LLENO":
+          return `Este turno ya alcanzó el cupo máximo de ${CUPO_MAXIMO_TURNOS} personas.`;
+        case "YA_ANOTADO":
+          return "Ya estás anotado en este turno.";
+        case "CUPO_NO_CONFIGURADO":
+          return "El cupo del tablero no está configurado. Avisale a la comisión directiva.";
         case "TURNO_NO_PERTENECE":
           return "Ese turno ya no te corresponde.";
+        case "CELDA_OCUPADA":
+          return "Alguien se anotó primero en este turno, elegí otro.";
         case "BOMBERO_INACTIVO":
           return "Tu usuario está dado de baja y no puede anotarse. Avisale a la comisión directiva.";
         default:

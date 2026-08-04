@@ -10,6 +10,7 @@ import { Modal } from "@/components/ui/modal";
 import type { SessionBombero } from "@/lib/auth";
 import { createBrowserSupabaseClient } from "@/lib/supabase-browser";
 import {
+  celdaKey,
   FRANJAS,
   fechasAConsultar,
   franjaActual,
@@ -38,6 +39,7 @@ type TableroProps = {
   turnos: TurnoCelda[];
   dias: DiaTablero[];
   hoyKey: string;
+  cupoMaximo: number;
 };
 
 type Dialogo =
@@ -47,7 +49,79 @@ type Dialogo =
   | null;
 
 function legajoLabel(numero: number) {
-  return `Legajo N° ${String(numero).padStart(4, "0")}`;
+  return `Legajo N° ${String(numero).padStart(3, "0")}`;
+}
+
+type PersonaAnotadaProps = {
+  bombero: RosterBombero;
+  turno: TurnoCelda;
+  esMio: boolean;
+  onCancelar: (turno: TurnoCelda) => void;
+  onCambiar: (turno: TurnoCelda) => void;
+  showLegajo?: boolean;
+};
+
+function PersonaAnotada({
+  bombero,
+  turno,
+  esMio,
+  onCancelar,
+  onCambiar,
+  showLegajo = false,
+}: PersonaAnotadaProps) {
+  return (
+    <div
+      className={`relative overflow-hidden rounded-[8px] px-2 py-2 ${
+        esMio ? "ring-2 ring-brass/40" : ""
+      }`}
+    >
+      <Image
+        src="/logo.jpg"
+        alt=""
+        aria-hidden
+        fill
+        sizes="100%"
+        className="pointer-events-none object-contain opacity-[0.06] mix-blend-multiply"
+      />
+      <div className="relative z-10">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          {esMio ? <span className="sr-only">Tu turno</span> : null}
+          <p
+            className={`text-[16px] font-semibold leading-tight ${
+              esMio ? "text-brass" : "text-ink"
+            }`}
+          >
+            {bombero.nombre_completo}
+          </p>
+          {isCargo(bombero.cargo) ? <Badge cargo={bombero.cargo} /> : null}
+        </div>
+        {showLegajo ? (
+          <p className="mt-0.5 font-mono text-[13px] text-ink-muted">
+            {legajoLabel(bombero.numero_ingreso)}
+          </p>
+        ) : null}
+        {esMio ? (
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onCancelar(turno)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => onCambiar(turno)}
+            >
+              <ArrowLeftRight className="h-4 w-4" aria-hidden />
+              Cambiar turno
+            </Button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 export function Tablero({
@@ -56,6 +130,7 @@ export function Tablero({
   turnos: turnosIniciales,
   dias,
   hoyKey,
+  cupoMaximo,
 }: TableroProps) {
   const [turnos, setTurnos] = useState(turnosIniciales);
   const [roster, setRoster] = useState(bomberosIniciales);
@@ -171,18 +246,32 @@ export function Tablero({
   }, [getClient, refrescar, refrescarBomberos]);
 
   const porCelda = useMemo(() => {
-    const mapa = new Map<string, TurnoCelda>();
-    for (const turno of turnos) mapa.set(`${turno.fecha}|${turno.franja}`, turno);
+    const mapa = new Map<string, TurnoCelda[]>();
+    for (const turno of turnos) {
+      const key = celdaKey(turno.fecha, turno.franja);
+      const lista = mapa.get(key);
+      if (lista) lista.push(turno);
+      else mapa.set(key, [turno]);
+    }
     return mapa;
   }, [turnos]);
 
-  const turnoActual = useMemo(() => {
-    if (!actual) return null;
-    return porCelda.get(`${actual.fechaKey}|${actual.franja}`) ?? null;
-  }, [actual, porCelda]);
-  const bomberoActual = turnoActual
-    ? roster[turnoActual.bombero_id]
-    : null;
+  const turnosDeCelda = useCallback(
+    (fechaKey: string, franja: Franja): TurnoCelda[] => {
+      return porCelda.get(celdaKey(fechaKey, franja)) ?? [];
+    },
+    [porCelda]
+  );
+
+  const personasActuales = useMemo(() => {
+    if (!actual) return [];
+    return turnosDeCelda(actual.fechaKey, actual.franja)
+      .map((turno) => ({ turno, bombero: roster[turno.bombero_id] }))
+      .filter(
+        (x): x is { turno: TurnoCelda; bombero: RosterBombero } =>
+          x.bombero != null
+      );
+  }, [actual, roster, turnosDeCelda]);
 
   const opcionesCambio = useMemo(() => {
     if (!dialogo || dialogo.tipo !== "cambiar") return [];
@@ -198,13 +287,14 @@ export function Tablero({
         const esElMismo =
           opcion.fechaKey === dialogo.turno.fecha &&
           opcion.franja === dialogo.turno.franja;
-        return (
-          opcion.fechaKey >= hoyKey &&
-          !esElMismo &&
-          !porCelda.has(`${opcion.fechaKey}|${opcion.franja}`)
+        if (opcion.fechaKey < hoyKey || esElMismo) return false;
+        const anotados = turnosDeCelda(opcion.fechaKey, opcion.franja);
+        const yaAnotado = anotados.some(
+          (turno) => turno.bombero_id === session.bombero_id
         );
+        return !yaAnotado && anotados.length < cupoMaximo;
       });
-  }, [dialogo, dias, hoyKey, porCelda]);
+  }, [dialogo, dias, hoyKey, session.bombero_id, turnosDeCelda, cupoMaximo]);
 
   function labelDia(fechaKey: string): string {
     return dias.find((dia) => dia.key === fechaKey)?.label ?? fechaKey;
@@ -263,105 +353,48 @@ export function Tablero({
     void refrescar();
   }
 
-  function renderCeldaGrilla(
-    dia: DiaTablero,
-    franja: Franja,
-    turno: TurnoCelda | undefined,
-    esMio: boolean
-  ) {
+  function renderCeldaGrilla(dia: DiaTablero, franja: Franja) {
     const diaPasado = dia.key < hoyKey;
+    const turnos = turnosDeCelda(dia.key, franja);
+    const ocupados = turnos.length;
+    const completo = ocupados >= cupoMaximo;
+    const miTurno = turnos.find(
+      (turno) => turno.bombero_id === session.bombero_id
+    );
 
     if (diaPasado) {
-      const bombero = turno ? roster[turno.bombero_id] : null;
       return (
         <Card key={franja} className="bg-bg p-3 opacity-60">
-          <div className="flex h-full min-h-[7.5rem] flex-col justify-between gap-3">
-            {turno ? (
-              <>
-                <div className="flex items-center justify-between gap-2">
-                  <Check
-                    className="h-5 w-5 text-brass"
-                    strokeWidth={3}
-                    aria-hidden
-                  />
-                  <span className="sr-only">Asignado</span>
-                </div>
-                <div>
-                  <p className="text-[17px] font-semibold leading-tight">
-                    {bombero?.nombre_completo ?? "Bombero"}
-                  </p>
-                  <p className="mt-0.5 font-mono text-[13px] text-ink-muted">
-                    {bombero ? legajoLabel(bombero.numero_ingreso) : ""}
-                  </p>
-                </div>
-              </>
-            ) : (
-              <p className="text-[17px] text-ink-muted">Sin asignar</p>
-            )}
-          </div>
-        </Card>
-      );
-    }
-
-    if (turno && esMio) {
-      return (
-        <Card key={franja} stamped className="p-3 ring-2 ring-brass/40">
-          <div className="flex h-full min-h-[7.5rem] flex-col justify-between gap-3">
+          <div className="flex h-full flex-col gap-2.5">
             <div className="flex items-center justify-between gap-2">
-              <Check className="h-5 w-5 text-brass" strokeWidth={3} aria-hidden />
-              <span className="sr-only">Tu turno</span>
-              {isCargo(session.cargo) ? <Badge cargo={session.cargo} /> : null}
-            </div>
-            <div>
-              <p className="text-[17px] font-semibold leading-tight text-brass">
-                {session.nombre_completo}
-              </p>
-              <p className="mt-0.5 font-mono text-[13px] text-ink-muted">
-                {legajoLabel(session.numero_ingreso)}
-              </p>
-            </div>
-            <div className="flex flex-col gap-2">
-              <Button
-                variant="ghost"
-                size="md"
-                onClick={() => abrirCancelar(turno)}
-              >
-                Cancelar
-              </Button>
-              <Button
-                variant="secondary"
-                size="md"
-                onClick={() => abrirCambiar(turno)}
-              >
-                <ArrowLeftRight className="h-4 w-4" aria-hidden />
-                Cambiar turno
-              </Button>
-            </div>
-          </div>
-        </Card>
-      );
-    }
-
-    if (turno) {
-      const bombero = roster[turno.bombero_id];
-      return (
-        <Card key={franja} stamped className="p-3">
-          <div className="flex h-full min-h-[7.5rem] flex-col justify-between gap-3">
-            <div className="flex items-center justify-between gap-2">
-              <Check className="h-5 w-5 text-brass" strokeWidth={3} aria-hidden />
-              <span className="sr-only">Asignado</span>
-            </div>
-            <div>
-              <p className="text-[17px] font-semibold leading-tight">
-                {bombero?.nombre_completo ?? "Bombero"}
-              </p>
-              <p className="mt-0.5 font-mono text-[13px] text-ink-muted">
-                {bombero ? legajoLabel(bombero.numero_ingreso) : ""}
-              </p>
-              {bombero && isCargo(bombero.cargo) ? (
-                <Badge cargo={bombero.cargo} className="mt-1.5" />
+              <span className="font-mono text-[13px] text-ink-muted">
+                {ocupados > 0 ? `${ocupados}/${cupoMaximo} anotados` : "Sin asignar"}
+              </span>
+              {ocupados > 0 ? (
+                <Check
+                  className="h-5 w-5 text-brass"
+                  strokeWidth={3}
+                  aria-hidden
+                />
               ) : null}
             </div>
+            {ocupados === 0 ? null : (
+              <div className="flex flex-col gap-1.5">
+                {turnos.map((turno) => {
+                  const bombero = roster[turno.bombero_id];
+                  return bombero ? (
+                    <div key={turno.id}>
+                      <p className="text-[15px] font-semibold leading-tight">
+                        {bombero.nombre_completo}
+                      </p>
+                      {isCargo(bombero.cargo) ? (
+                        <Badge cargo={bombero.cargo} className="mt-1" />
+                      ) : null}
+                    </div>
+                  ) : null;
+                })}
+              </div>
+            )}
           </div>
         </Card>
       );
@@ -369,124 +402,153 @@ export function Tablero({
 
     return (
       <Card key={franja} className="p-3">
-        <div className="flex h-full min-h-[7.5rem] flex-col justify-between gap-3">
-          <p className="text-[17px] text-ink-muted">Sin asignar</p>
-          <Button
-            variant="primary"
-            size="md"
-            onClick={() => abrirAnotar(dia.key, franja)}
-          >
-            Anotarme
-          </Button>
+        <div className="flex h-full flex-col gap-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-mono text-[13px] uppercase tracking-widest text-ink-muted">
+              {ocupados}/{cupoMaximo} anotados
+            </span>
+            {miTurno ? (
+              <Check
+                className="h-5 w-5 text-brass"
+                strokeWidth={3}
+                aria-hidden
+              />
+            ) : null}
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            {turnos.map((turno) => {
+              const bombero = roster[turno.bombero_id];
+              if (!bombero) return null;
+              return (
+                <PersonaAnotada
+                  key={turno.id}
+                  bombero={bombero}
+                  turno={turno}
+                  esMio={turno.bombero_id === session.bombero_id}
+                  onCancelar={abrirCancelar}
+                  onCambiar={abrirCambiar}
+                  showLegajo
+                />
+              );
+            })}
+          </div>
+
+          {!miTurno ? (
+            completo ? (
+              <p className="text-[15px] font-semibold text-ink-muted">
+                Cupo completo
+              </p>
+            ) : (
+              <Button
+                variant="primary"
+                size="md"
+                className="w-full"
+                onClick={() => abrirAnotar(dia.key, franja)}
+              >
+                Anotarme
+              </Button>
+            )
+          ) : null}
         </div>
       </Card>
     );
   }
 
-  function renderFilaMovil(
-    dia: DiaTablero,
-    franja: Franja,
-    turno: TurnoCelda | undefined,
-    esMio: boolean
-  ) {
+  function renderFilaMovil(dia: DiaTablero, franja: Franja) {
     const diaPasado = dia.key < hoyKey;
+    const turnos = turnosDeCelda(dia.key, franja);
+    const ocupados = turnos.length;
+    const completo = ocupados >= cupoMaximo;
+    const miTurno = turnos.find(
+      (turno) => turno.bombero_id === session.bombero_id
+    );
 
     if (diaPasado) {
-      const bombero = turno ? roster[turno.bombero_id] : null;
       return (
         <div key={franja} className="px-4 py-3 opacity-60">
           <div className="flex items-center justify-between gap-3">
             <p className="font-mono text-[13px] uppercase tracking-widest text-ink-muted">
               {franja}
             </p>
-            {turno ? (
-              <Check
-                className="h-5 w-5 shrink-0 text-brass"
-                strokeWidth={3}
-                aria-hidden
-              />
-            ) : null}
-          </div>
-          <p className="mt-1 text-[17px] font-semibold leading-tight text-ink-muted">
-            {turno ? (bombero?.nombre_completo ?? "Bombero") : "Sin asignar"}
-          </p>
-        </div>
-      );
-    }
-
-    if (turno) {
-      const bombero = roster[turno.bombero_id];
-      return (
-        <div key={franja} className="relative px-4 py-3">
-          <Image
-            src="/logo.jpg"
-            alt=""
-            aria-hidden
-            fill
-            sizes="100%"
-            className="pointer-events-none object-contain opacity-[0.06] mix-blend-multiply"
-          />
-          <div className="relative">
-            <div className="flex items-center justify-between gap-3">
-              <p className="font-mono text-[13px] uppercase tracking-widest text-ink-muted">
-                {franja}
-              </p>
-              <span className="sr-only">
-                {esMio ? "Tu turno" : "Asignado"}
+            {ocupados > 0 ? (
+              <span className="font-mono text-[13px] text-ink-muted">
+                {ocupados}/{cupoMaximo}
               </span>
-              <Check
-                className="h-5 w-5 shrink-0 text-brass"
-                strokeWidth={3}
-                aria-hidden
-              />
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-              <p className="text-[17px] font-semibold leading-tight">
-                {bombero?.nombre_completo ?? "Bombero"}
-              </p>
-              {bombero && isCargo(bombero.cargo) ? (
-                <Badge cargo={bombero.cargo} />
-              ) : null}
-            </div>
-            {esMio ? (
-              <div className="mt-3 flex flex-col gap-2">
-                <Button
-                  variant="ghost"
-                  size="md"
-                  onClick={() => abrirCancelar(turno)}
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="md"
-                  onClick={() => abrirCambiar(turno)}
-                >
-                  <ArrowLeftRight className="h-4 w-4" aria-hidden />
-                  Cambiar turno
-                </Button>
-              </div>
             ) : null}
           </div>
+          {ocupados === 0 ? (
+            <p className="mt-1 text-[17px] font-semibold leading-tight text-ink-muted">
+              Sin asignar
+            </p>
+          ) : (
+            <ul className="mt-1 space-y-2">
+              {turnos.map((turno) => {
+                const bombero = roster[turno.bombero_id];
+                return bombero ? (
+                  <li
+                    key={turno.id}
+                    className="flex flex-wrap items-center gap-x-2 gap-y-1"
+                  >
+                    <p className="text-[17px] font-semibold leading-tight">
+                      {bombero.nombre_completo}
+                    </p>
+                    {isCargo(bombero.cargo) ? (
+                      <Badge cargo={bombero.cargo} />
+                    ) : null}
+                  </li>
+                ) : null;
+              })}
+            </ul>
+          )}
         </div>
       );
     }
 
     return (
-      <div
-        key={franja}
-        className="flex items-center justify-between gap-3 px-4 py-2.5"
-      >
-        <p className="font-mono text-[13px] uppercase tracking-widest text-ink-muted">
-          {franja}
-        </p>
-        <Button
-          variant="primary"
-          size="md"
-          onClick={() => abrirAnotar(dia.key, franja)}
-        >
-          Anotarme
-        </Button>
+      <div key={franja} className="px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <p className="font-mono text-[13px] uppercase tracking-widest text-ink-muted">
+            {franja}
+          </p>
+          <span className="font-mono text-[13px] uppercase tracking-widest text-ink-muted">
+            {ocupados}/{cupoMaximo} anotados
+          </span>
+        </div>
+
+        <div className="mt-2 flex flex-col gap-2">
+          {turnos.map((turno) => {
+            const bombero = roster[turno.bombero_id];
+            if (!bombero) return null;
+            return (
+              <PersonaAnotada
+                key={turno.id}
+                bombero={bombero}
+                turno={turno}
+                esMio={turno.bombero_id === session.bombero_id}
+                onCancelar={abrirCancelar}
+                onCambiar={abrirCambiar}
+              />
+            );
+          })}
+        </div>
+
+        {!miTurno ? (
+          completo ? (
+            <p className="mt-3 text-[15px] font-semibold text-ink-muted">
+              Cupo completo
+            </p>
+          ) : (
+            <Button
+              variant="primary"
+              size="md"
+              className="mt-3 w-full"
+              onClick={() => abrirAnotar(dia.key, franja)}
+            >
+              Anotarme
+            </Button>
+          )
+        ) : null}
       </div>
     );
   }
@@ -517,13 +579,9 @@ export function Tablero({
                 ) : null}
               </header>
               <div className="divide-y divide-line">
-                {FRANJAS.map((franja) => {
-                  const turno = porCelda.get(`${dia.key}|${franja}`);
-                  const esMio = turno
-                    ? turno.bombero_id === session.bombero_id
-                    : false;
-                  return renderFilaMovil(dia, franja, turno, esMio);
-                })}
+                {FRANJAS.map((franja) =>
+                  renderFilaMovil(dia, franja)
+                )}
               </div>
             </section>
           );
@@ -544,24 +602,37 @@ export function Tablero({
       <div>
         <h1 className="heading-display text-2xl">Tablero de guardias</h1>
         <p className="mt-1 text-[17px] text-ink-muted">
-          Una persona por turno. Tocá una celda libre para anotarte.
+          Hasta {cupoMaximo} personas por turno. Tocá una celda con lugar para
+          anotarte.
         </p>
       </div>
 
       <section className="mt-6 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[10px] border-l-4 border-alarm bg-alarm/15 px-4 py-3">
-        <Clock className="h-5 w-5 shrink-0 text-alarm" strokeWidth={2.5} aria-hidden />
+        <Clock
+          className="h-5 w-5 shrink-0 text-alarm"
+          strokeWidth={2.5}
+          aria-hidden
+        />
         <p className="heading-display text-sm text-alarm">En servicio ahora</p>
-        {turnoActual && bomberoActual ? (
+        {personasActuales.length > 0 ? (
           <>
-            <p className="text-[17px] font-semibold">
-              {bomberoActual.nombre_completo}
-            </p>
-            <p className="font-mono text-[13px] text-ink-muted">
-              {legajoLabel(bomberoActual.numero_ingreso)}
-            </p>
-            {isCargo(bomberoActual.cargo) ? (
-              <Badge cargo={bomberoActual.cargo} />
-            ) : null}
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              {personasActuales.map(({ turno, bombero }, indice) => (
+                <span key={turno.id} className="flex items-center gap-2">
+                  {indice > 0 ? (
+                    <span aria-hidden className="text-ink-muted">
+                      ,
+                    </span>
+                  ) : null}
+                  <span className="text-[17px] font-semibold">
+                    {bombero.nombre_completo}
+                  </span>
+                  {isCargo(bombero.cargo) ? (
+                    <Badge cargo={bombero.cargo} />
+                  ) : null}
+                </span>
+              ))}
+            </div>
             <p className="ml-auto font-mono text-[13px] uppercase tracking-widest text-alarm">
               {actual?.franja}
             </p>
@@ -611,13 +682,7 @@ export function Tablero({
                     {esHoy ? "Hoy" : diaPasado ? "Pasado" : ""}
                   </p>
                 </div>
-                {FRANJAS.map((franja) => {
-                  const turno = porCelda.get(`${dia.key}|${franja}`);
-                  const esMio = turno
-                    ? turno.bombero_id === session.bombero_id
-                    : false;
-                  return renderCeldaGrilla(dia, franja, turno, esMio);
-                })}
+                {FRANJAS.map((franja) => renderCeldaGrilla(dia, franja))}
               </div>
             );
           })}
@@ -698,7 +763,8 @@ export function Tablero({
             <p>
               ¿A qué turno querés mover tu guardia del{" "}
               <strong className="font-mono">
-                {labelDia(dialogo.turno.fecha)} {franjaCorta(dialogo.turno.franja)}
+                {labelDia(dialogo.turno.fecha)}{" "}
+                {franjaCorta(dialogo.turno.franja)}
               </strong>
               ?
             </p>
@@ -732,7 +798,7 @@ export function Tablero({
               </div>
             ) : (
               <p className="mt-3 text-ink-muted">
-                No hay turnos libres para mover tu guardia.
+                No hay turnos con lugar para mover tu guardia.
               </p>
             )}
             {objetivo ? (

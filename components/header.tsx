@@ -43,7 +43,7 @@ export async function Header() {
                 <Badge cargo={cargo} className="mt-1" />
               ) : (
                 <p className="font-mono text-[13px] text-ink-muted">
-                  Legajo {String(session.numero_ingreso).padStart(4, "0")}
+                  Legajo {String(session.numero_ingreso).padStart(3, "0")}
                 </p>
               )}
             </div>

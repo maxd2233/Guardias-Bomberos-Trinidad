@@ -13,17 +13,45 @@
 --   y el cron job (clave service_role) las invocan. El parámetro
 --   p_bombero_id siempre se deriva de la sesión firmada del servidor,
 --   nunca del cliente.
--- * El índice único parcial turnos_celda_ocupada_uniq garantiza que
---   dos pedidos simultáneos sobre la misma celda no puedan convivir:
---   el segundo recibe un error 23505 y se revierte todo.
+-- * Cupo de 5 por celda: se valida DENTRO de la función, en la misma
+--   transacción. lock_celda toma un advisory lock por celda (fecha+franja)
+--   antes del count + insert: dos anotaciones simultáneas sobre el 5to
+--   lugar quedan serializadas, una inserta y la otra recibe CUPO_LLENO.
+-- * El índice único (fecha, franja, bombero_id) con bombero_id not null
+--   impide que el mismo bombero se anote dos veces en la misma celda.
 -- ------------------------------------------------------------
 
 -- ============================================================
+-- lock_celda
+-- Helper interno: toma un advisory lock de TRANSACCIÓN sobre la celda
+-- (fecha + franja). Todas las operaciones que modifican una celda pasan
+-- por acá, así el count + insert del cupo es atómico aunque lleguen dos
+-- pedidos en paralelo sobre el mismo lugar libre.
+-- ============================================================
+create or replace function public.lock_celda(
+  p_fecha date,
+  p_franja text
+) returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_fecha::text || '|' || p_franja, 0));
+end;
+$$;
+
+-- ============================================================
 -- ocupar_celda
--- Helper interno: ocupa la celda (fecha + franja) asignándola a un
--- bombero. Si la celda ya tiene una fila generada y libre (bombero_id
--- null, creada por generar_turnos_ventana), la reutiliza; si no existe
--- ninguna, la crea. Devuelve el id del turno.
+-- Helper interno: anota a un bombero en la celda (fecha + franja)
+-- validando el cupo máximo de forma ATÓMICA (advisory lock + count dentro
+-- de esta misma transacción). Reutiliza una fila libre de la celda si hay
+-- (generada por generar_turnos_ventana o liberada por una cancelación) o
+-- crea una nueva. Devuelve el id del turno.
+-- Errores:
+--   YA_ANOTADO          -> el bombero ya ocupa esa celda exacta
+--   CUPO_LLENO          -> la celda ya tiene cupo_maximo_turnos personas
+--   CUPO_NO_CONFIGURADO -> falta la fila 'cupo_maximo_turnos' en configuracion
 -- ============================================================
 create or replace function public.ocupar_celda(
   p_fecha date,
@@ -36,14 +64,44 @@ set search_path = public
 as $$
 declare
   v_turno_id uuid;
+  v_cupo integer;
+  v_ocupados integer;
 begin
-  -- Reutilizar una celda libre ya generada, si hay alguna.
+  -- Serializa todas las operaciones de esta celda (anotar / cambiar).
+  perform public.lock_celda(p_fecha, p_franja);
+
+  -- El mismo bombero no puede repetirse en la misma celda exacta.
+  if exists (
+    select 1
+    from public.turnos
+    where fecha = p_fecha and franja = p_franja and bombero_id = p_bombero_id
+  ) then
+    raise exception using errcode = 'P0001', message = 'YA_ANOTADO';
+  end if;
+
+  -- Cupo máximo leído de configuracion en cada operación (fuente única).
+  select valor into v_cupo
+  from public.configuracion
+  where clave = 'cupo_maximo_turnos';
+  if v_cupo is null then
+    raise exception using errcode = 'P0001', message = 'CUPO_NO_CONFIGURADO';
+  end if;
+
+  select count(*) into v_ocupados
+  from public.turnos
+  where fecha = p_fecha and franja = p_franja and bombero_id is not null;
+
+  if v_ocupados >= v_cupo then
+    raise exception using errcode = 'P0001', message = 'CUPO_LLENO';
+  end if;
+
+  -- Reutilizar una fila libre de la celda, o crear una nueva si no hay.
   select id into v_turno_id
   from public.turnos
   where fecha = p_fecha and franja = p_franja and bombero_id is null
   order by id
   limit 1
-  for update skip locked;
+  for update;
 
   if v_turno_id is null then
     insert into public.turnos (fecha, franja, bombero_id)
@@ -61,7 +119,8 @@ $$;
 
 -- ============================================================
 -- anotar_turno
--- Registra una guardia nueva. Rechaza si la celda ya está ocupada.
+-- Registra una guardia nueva (una fila por bombero). Rechaza si la celda
+-- ya está llena (CUPO_LLENO) o si el bombero ya está anotado (YA_ANOTADO).
 -- Un bombero puede anotarse en varias celdas (días y franjas).
 -- ============================================================
 create or replace function public.anotar_turno(
@@ -86,16 +145,8 @@ begin
     raise exception using errcode = 'P0001', message = 'FRANJA_INVALIDA';
   end if;
 
-  -- Única restricción: la celda (fecha + franja) ya está ocupada. Un bombero
-  -- SÍ puede anotarse en varias celdas de la misma semana.
-  if exists (
-    select 1
-    from public.turnos
-    where fecha = p_fecha and franja = p_franja and bombero_id is not null
-  ) then
-    raise exception using errcode = 'P0001', message = 'CELDA_OCUPADA';
-  end if;
-
+  -- Cupo y duplicado por celda: lo valida ocupar_celda de forma atómica
+  -- (advisory lock + count dentro de esta misma transacción).
   v_turno_id := public.ocupar_celda(p_fecha, p_franja, p_bombero_id);
 
   insert into public.historial_cambios (turno_id, bombero_id, accion)
@@ -107,8 +158,9 @@ $$;
 
 -- ============================================================
 -- cancelar_turno
--- Libera una celda (bombero_id = null) y registra el cambio.
--- Solo funciona si el turno pertenece al bombero que pide cancelar.
+-- Libera SOLO la fila del bombero que cancela (bombero_id = null), sin
+-- afectar a las demás personas anotadas en la misma celda. Registra el
+-- cambio. Solo funciona si el turno pertenece al bombero que pide cancelar.
 -- p_nota es opcional: si llega vacío (o null) se guarda sin nota.
 -- ============================================================
 drop function if exists public.cancelar_turno(uuid, uuid);
@@ -131,7 +183,8 @@ begin
     raise exception using errcode = 'P0001', message = 'BOMBERO_INACTIVO';
   end if;
 
-  -- Bloquea la fila para evitar cancelaciones dobles en paralelo.
+  -- Bloquea la fila del bombero que cancela para evitar cancelaciones
+  -- dobles en paralelo y verifica que el turno le pertenezca.
   select id into v_id
   from public.turnos
   where id = p_turno_id and bombero_id = p_bombero_id
@@ -143,12 +196,12 @@ begin
 
   update public.turnos
   set bombero_id = null
-  where id = p_turno_id;
+  where id = v_id;
 
   insert into public.historial_cambios (turno_id, bombero_id, accion, nota)
-  values (p_turno_id, p_bombero_id, 'cancelo', nullif(p_nota, ''));
+  values (v_id, p_bombero_id, 'cancelo', nullif(p_nota, ''));
 
-  return p_turno_id;
+  return v_id;
 end;
 $$;
 
@@ -156,8 +209,9 @@ $$;
 -- cambiar_turno
 -- Mueve la guardia de un bombero a otra celda: libera la anterior,
 -- ocupa la nueva y registra accion = 'cambio' con turno_anterior_id.
--- Si la celda de destino fue tomada mientras tanto, el índice único
--- hace fallar TODO el cambio y la liberación anterior se revierte.
+-- La celda de DESTINO también valida el cupo de 5 (ocupar_celda, atómico)
+-- antes de liberar la celda de origen: si el destino está lleno, falla TODO
+-- el cambio y la celda de origen queda intacta.
 -- ============================================================
 create or replace function public.cambiar_turno(
   p_turno_anterior_id uuid,
@@ -190,19 +244,12 @@ begin
     raise exception using errcode = 'P0001', message = 'TURNO_NO_PERTENECE';
   end if;
 
-  if exists (
-    select 1
-    from public.turnos
-    where fecha = p_fecha and franja = p_franja and bombero_id is not null
-  ) then
-    raise exception using errcode = 'P0001', message = 'CELDA_OCUPADA';
-  end if;
+  -- Ocupa el destino validando cupo y duplicado ANTES de liberar el origen.
+  v_turno_nuevo_id := public.ocupar_celda(p_fecha, p_franja, p_bombero_id);
 
   update public.turnos
   set bombero_id = null
   where id = p_turno_anterior_id;
-
-  v_turno_nuevo_id := public.ocupar_celda(p_fecha, p_franja, p_bombero_id);
 
   insert into public.historial_cambios (turno_id, bombero_id, accion, turno_anterior_id)
   values (v_turno_nuevo_id, p_bombero_id, 'cambio', p_turno_anterior_id);
@@ -215,10 +262,10 @@ $$;
 -- generar_turnos_ventana
 -- Genera (idempotente) las filas de turnos de la ventana móvil
 -- [p_fecha_inicio, p_fecha_inicio + p_dias - 1]: crea las celdas
--- (fecha + franja) que aún no existen, sin bombero asignado.
--- No toca ni borra turnos ya anotados: si una celda ya tiene fila
--- (asignada o no), se saltea. Por eso puede re-ejecutarse todos los
--- días sin duplicar nada, y los turnos de días pasados quedan intactos.
+-- (fecha + franja) que aún no existen, sin bombero asignado. Estas filas
+-- quedan como "asientos" reutilizables: al anotar, ocupar_celda las
+-- aprovecha antes de crear filas nuevas, y una cancelación vuelve a
+-- liberarlas. No toca ni borra turnos ya anotados.
 -- ============================================================
 create or replace function public.generar_turnos_ventana(
   p_fecha_inicio date,
@@ -338,6 +385,7 @@ $$;
 -- habilitamos la clave service_role (usada por los server actions).
 -- ============================================================
 revoke all on function public.ocupar_celda(date, text, uuid) from public;
+revoke all on function public.lock_celda(date, text) from public;
 revoke all on function public.anotar_turno(date, text, uuid) from public;
 revoke all on function public.cancelar_turno(uuid, uuid, text) from public;
 revoke all on function public.cambiar_turno(uuid, date, text, uuid) from public;
@@ -346,6 +394,7 @@ revoke all on function public.crear_bombero(integer, text, text) from public;
 revoke all on function public.dar_de_baja_bombero(uuid) from public;
 
 grant execute on function public.ocupar_celda(date, text, uuid) to service_role;
+grant execute on function public.lock_celda(date, text) to service_role;
 grant execute on function public.anotar_turno(date, text, uuid) to service_role;
 grant execute on function public.cancelar_turno(uuid, uuid, text) to service_role;
 grant execute on function public.cambiar_turno(uuid, date, text, uuid) to service_role;

@@ -53,18 +53,25 @@ create table if not exists public.turnos (
   created_at timestamptz not null default now()
 );
 
--- Cupo por celda (fecha + franja) SIEMPRE de una sola persona.
--- Índice único parcial: solo bloquea celdas que ya tienen bombero,
--- permitiendo crear/consultar celdas vacías sin conflicto.
--- La base de datos misma impide anotar dos personas en la misma celda
--- aunque lleguen dos pedidos al mismo tiempo.
-create unique index if not exists turnos_celda_ocupada_uniq
-  on public.turnos (fecha, franja)
+-- Cupo por celda (fecha + franja): hasta 5 personas (ver la tabla
+-- configuracion, clave 'cupo_maximo_turnos'). Cada anotación es una fila
+-- propia con su bombero_id; la celda crece en alto con las anotaciones.
+--
+-- Migración de esquemas viejos: el índice único parcial que impedía DOS
+-- personas en la misma celda (turnos_celda_ocupada_uniq) ya no existe en
+-- este diseño y se elimina si quedó en la base. Idempotente.
+drop index if exists public.turnos_celda_ocupada_uniq;
+
+-- El MISMO bombero no puede anotarse dos veces en la misma celda exacta
+-- (fecha + franja). Es el único índice único del esquema de cupo: los NULL
+-- son libres, así una cancelación (bombero_id = null) libera su lugar sin
+-- afectar a las demás personas anotadas en la misma celda.
+create unique index if not exists turnos_celda_bombero_uniq
+  on public.turnos (fecha, franja, bombero_id)
   where bombero_id is not null;
 
 -- Un bombero puede tener guardias en varios días/franjas a la vez.
--- La única restricción real es la de la celda (turnos_celda_ocupada_uniq):
--- nunca dos bomberos en la misma celda. Por eso NO hay índice por bombero.
+-- La única restricción de duplicado es (fecha, franja, bombero_id) de arriba.
 
 -- Migración de esquemas viejos: la restricción "un bombero = una sola
 -- guardia" (turnos_bombero_activo_uniq) ya no existe en este diseño y hay
@@ -77,6 +84,21 @@ create index if not exists idx_turnos_fecha
   on public.turnos (fecha);
 create index if not exists idx_turnos_bombero_id
   on public.turnos (bombero_id);
+
+-- ============================================================
+-- Tabla: configuracion
+-- Parámetros de negocio del tablero. Fuente única del cupo máximo por
+-- celda (fecha + franja): las RPC de anotación lo leen en cada operación,
+-- así se puede subir/bajar el cupo desde el dashboard sin tocar código.
+-- ============================================================
+create table if not exists public.configuracion (
+  clave text primary key,
+  valor integer not null
+);
+
+insert into public.configuracion (clave, valor)
+values ('cupo_maximo_turnos', 5)
+on conflict (clave) do nothing;
 
 -- ============================================================
 -- Tabla: historial_cambios
@@ -108,6 +130,7 @@ create index if not exists idx_historial_bombero_id
 alter table public.bomberos enable row level security;
 alter table public.turnos enable row level security;
 alter table public.historial_cambios enable row level security;
+alter table public.configuracion enable row level security;
 
 -- Lectura de bomberos: también pública para anónimos (anon), porque la
 -- pantalla de login (sin sesión) busca el numero_ingreso y muestra la lista
@@ -203,6 +226,35 @@ begin
   ) then
     create policy "historial_select_authenticated"
       on public.historial_cambios
+      for select
+      to authenticated
+      using (true);
+  end if;
+end
+$$;
+
+-- Lectura de configuracion (cupo máximo): tanto anon como authenticated,
+-- porque el tablero la lee con la anon key desde el servidor y el navegador.
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public' and tablename = 'configuracion' and policyname = 'configuracion_select_anon'
+  ) then
+    create policy "configuracion_select_anon"
+      on public.configuracion
+      for select
+      to anon
+      using (true);
+  end if;
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public' and tablename = 'configuracion' and policyname = 'configuracion_select_authenticated'
+  ) then
+    create policy "configuracion_select_authenticated"
+      on public.configuracion
       for select
       to authenticated
       using (true);
