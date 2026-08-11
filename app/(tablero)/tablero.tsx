@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { ArrowLeftRight, Check, Clock } from "lucide-react";
+import { ArrowLeftRight, Check, Clock, Printer } from "lucide-react";
 import { Badge, isCargo } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -145,6 +145,10 @@ export function Tablero({
   const [actual, setActual] = useState<ReturnType<typeof franjaActual> | null>(
     null
   );
+  const [menuImpresion, setMenuImpresion] = useState(false);
+  const [imprimirRango, setImprimirRango] = useState<
+    "semana1" | "semana2" | "todo" | null
+  >(null);
 
   const clientRef = useRef<ReturnType<typeof createBrowserSupabaseClient> | null>(
     null
@@ -245,6 +249,17 @@ export function Tablero({
     };
   }, [getClient, refrescar, refrescarBomberos]);
 
+  useEffect(() => {
+    if (!imprimirRango) return;
+    const id = window.setTimeout(() => window.print(), 50);
+    const cerrar = () => setImprimirRango(null);
+    window.addEventListener("afterprint", cerrar);
+    return () => {
+      window.clearTimeout(id);
+      window.removeEventListener("afterprint", cerrar);
+    };
+  }, [imprimirRango]);
+
   const porCelda = useMemo(() => {
     const mapa = new Map<string, TurnoCelda[]>();
     for (const turno of turnos) {
@@ -255,6 +270,12 @@ export function Tablero({
     }
     return mapa;
   }, [turnos]);
+
+  const diasImpresion = useMemo(() => {
+    if (imprimirRango === "todo") return dias;
+    if (imprimirRango === "semana2") return dias.slice(7);
+    return dias.slice(0, 7);
+  }, [dias, imprimirRango]);
 
   const turnosDeCelda = useCallback(
     (fechaKey: string, franja: Franja): TurnoCelda[] => {
@@ -315,6 +336,11 @@ export function Tablero({
     setError(null);
     setObjetivo(null);
     setDialogo({ tipo: "cambiar", turno });
+  }
+
+  function elegirImpresion(rango: "semana1" | "semana2" | "todo") {
+    setMenuImpresion(false);
+    setImprimirRango(rango);
   }
 
   function cerrarDialogo() {
@@ -598,14 +624,25 @@ export function Tablero({
         : "Sí, mover";
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
-      <div>
-        <h1 className="heading-display text-2xl">Tablero de guardias</h1>
-        <p className="mt-1 text-[17px] text-ink-muted">
-          Hasta {cupoMaximo} personas por turno. Tocá una celda con lugar para
-          anotarte.
-        </p>
-      </div>
+    <>
+      <div className="no-print mx-auto w-full max-w-6xl px-4 py-8 sm:px-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="heading-display text-2xl">Tablero de guardias</h1>
+            <p className="mt-1 text-[17px] text-ink-muted">
+              Hasta {cupoMaximo} personas por turno. Tocá una celda con lugar
+              para anotarte.
+            </p>
+          </div>
+          <Button
+            variant="secondary"
+            size="md"
+            onClick={() => setMenuImpresion(true)}
+          >
+            <Printer className="h-4 w-4" aria-hidden />
+            Imprimir semana
+          </Button>
+        </div>
 
       <section className="mt-6 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-[10px] border-l-4 border-alarm bg-alarm/15 px-4 py-3">
         <Clock
@@ -819,7 +856,160 @@ export function Tablero({
         ) : null}
         {error ? <ErrorAviso mensaje={error} /> : null}
       </Modal>
-    </div>
+
+      <Modal
+        open={menuImpresion}
+        onClose={() => setMenuImpresion(false)}
+        title="Imprimir planilla"
+      >
+        <p>
+          Sale en A4 horizontal, en blanco y negro, tal como está anotado en
+          este momento.
+        </p>
+        <div className="mt-4 space-y-2">
+          <button
+            type="button"
+            onClick={() => elegirImpresion("semana1")}
+            className="min-h-11 w-full cursor-pointer rounded-[10px] border border-fire bg-fire/10 px-4 py-3 text-left text-[17px] font-medium text-ink transition-colors duration-150"
+          >
+            <span className="block font-semibold">Semana actual</span>
+            <span className="block text-[15px] text-ink-muted">
+              {rangoDeDias(dias.slice(0, 7))}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => elegirImpresion("semana2")}
+            className="min-h-11 w-full cursor-pointer rounded-[10px] border border-line bg-bg px-4 py-3 text-left text-[17px] font-medium text-ink transition-colors duration-150 hover:border-ink/40"
+          >
+            <span className="block font-semibold">Semana siguiente</span>
+            <span className="block text-[15px] text-ink-muted">
+              {rangoDeDias(dias.slice(7, 14))}
+            </span>
+          </button>
+          <button
+            type="button"
+            onClick={() => elegirImpresion("todo")}
+            className="min-h-11 w-full cursor-pointer rounded-[10px] border border-line bg-bg px-4 py-3 text-left text-[17px] font-medium text-ink transition-colors duration-150 hover:border-ink/40"
+          >
+            <span className="block font-semibold">Todo (14 días)</span>
+            <span className="block text-[15px] text-ink-muted">
+              {rangoDeDias(dias)}
+            </span>
+          </button>
+        </div>
+      </Modal>
+      </div>
+
+      <PlanillaImpresion
+        dias={diasImpresion}
+        porCelda={porCelda}
+        roster={roster}
+        compacta={diasImpresion.length > 7}
+      />
+    </>
+  );
+}
+
+const DIAS_CORTOS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+
+function labelDiaCorto(fechaKey: string): string {
+  const [anio, mes, dia] = fechaKey.split("-").map(Number);
+  if (!anio || !mes || !dia) return fechaKey;
+  const fecha = new Date(anio, mes - 1, dia);
+  return `${DIAS_CORTOS[fecha.getDay()]} ${String(dia).padStart(2, "0")}/${String(mes).padStart(2, "0")}`;
+}
+
+function formatDDMM(fechaKey: string): string {
+  const [, mes, dia] = fechaKey.split("-");
+  return `${dia}/${mes}`;
+}
+
+function rangoDeDias(dias: DiaTablero[]): string {
+  const desde = dias[0]?.key;
+  const hasta = dias[dias.length - 1]?.key;
+  return desde && hasta ? `Del ${formatDDMM(desde)} al ${formatDDMM(hasta)}` : "";
+}
+
+type PlanillaImpresionProps = {
+  dias: DiaTablero[];
+  porCelda: Map<string, TurnoCelda[]>;
+  roster: Record<string, RosterBombero>;
+  compacta?: boolean;
+};
+
+function PlanillaImpresion({
+  dias,
+  porCelda,
+  roster,
+  compacta = false,
+}: PlanillaImpresionProps) {
+  const rango = rangoDeDias(dias);
+
+  return (
+    <section className="print-only" aria-label="Planilla de guardias para imprimir">
+      <div
+        className={`planilla-impresion ${compacta ? "planilla-compacta" : "planilla-semana"}`}
+      >
+        <header className="planilla-encabezado">
+          <Image
+            src="/logo.jpg"
+            alt=""
+            width={30}
+            height={30}
+            priority
+            className="planilla-escudo"
+          />
+          <div>
+            <p className="planilla-nombre">Bomberos Voluntarios La Trinidad</p>
+            <p className="planilla-titulo">Planilla de Guardias</p>
+            <p className="planilla-rango">{rango}</p>
+          </div>
+        </header>
+
+        <table className="planilla-tabla">
+          <thead>
+            <tr>
+              <th scope="col">Día</th>
+              {FRANJAS.map((franja) => (
+                <th scope="col" key={franja}>
+                  {franja}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {dias.map((dia) => (
+              <tr key={dia.key}>
+                <th scope="row" className="planilla-dia">
+                  {labelDiaCorto(dia.key)}
+                </th>
+                {FRANJAS.map((franja) => {
+                  const anotados =
+                    porCelda.get(celdaKey(dia.key, franja)) ?? [];
+                  return (
+                    <td key={franja}>
+                      {anotados.length === 0 ? (
+                        <span className="planilla-vacio">—</span>
+                      ) : (
+                        anotados.map((turno) => {
+                          const bombero = roster[turno.bombero_id];
+                          return bombero ? (
+                            <div key={turno.id} className="planilla-nombre-linea">
+                              {bombero.nombre_completo}
+                            </div>
+                          ) : null;
+                        })
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

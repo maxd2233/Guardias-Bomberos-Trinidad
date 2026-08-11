@@ -124,10 +124,14 @@ export async function cargarHistorial(
   return assemblarHistorial(historial ?? [], bomberos, turnos);
 }
 
-/** "hace 10 minutos", "hace 2 horas", "hace 3 días", "hace 1 mes" (es-AR). */
+/**
+ * "hace 10 minutos", "hace 2 horas", "hace 3 días", "hace 1 mes" (es-AR).
+ * Intl.RelativeTimeFormat usa valores NEGATIVOS para el pasado ("hace X") y
+ * positivos para el futuro ("en X"), por eso se calcula fecha - ahora.
+ */
 export function tiempoRelativo(iso: string, ahora: Date): string {
   const fecha = new Date(iso);
-  const segundos = Math.round((ahora.getTime() - fecha.getTime()) / 1000);
+  const segundos = Math.round((fecha.getTime() - ahora.getTime()) / 1000);
   if (Number.isNaN(segundos)) return "";
 
   const rtf = new Intl.RelativeTimeFormat("es-AR", { numeric: "auto" });
@@ -144,4 +148,36 @@ export function tiempoRelativo(iso: string, ahora: Date): string {
 
   const meses = Math.round(segundos / (86400 * 30));
   return rtf.format(meses, "month");
+}
+
+/**
+ * Momento actual en milisegundos (epoch). Va envuelto en un helper para poder
+ * usarlo desde el render de la página (referencia de tiempo del historial), y
+ * así el tiempo relativo no depende del reloj del dispositivo del usuario.
+ */
+export function ahoraMs(): number {
+  return Date.now();
+}
+
+/**
+ * Fecha y hora LOCAL del cuartel (Tucumán) de un timestamp, ej. "10/08 11:45".
+ * Se calcula a partir del valor absoluto del timestamp, por lo que es correcta
+ * aunque el reloj del dispositivo esté desfasado.
+ */
+export function formatTimestamp(iso: string): string {
+  const fecha = new Date(iso);
+  if (Number.isNaN(fecha.getTime())) return "";
+  const partes = new Intl.DateTimeFormat("es-AR", {
+    timeZone: "America/Argentina/Tucuman",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(fecha);
+  const get = (tipo: string) =>
+    partes.find((parte) => parte.type === tipo)?.value ?? "";
+  const dd = get("day").padStart(2, "0");
+  const mm = get("month").padStart(2, "0");
+  return `${dd}/${mm} ${get("hour")}:${get("minute")}`;
 }

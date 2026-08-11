@@ -90,3 +90,191 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* ============================================================
+   Impresión — Planilla de guardias (A4 horizontal)
+   En pantalla la planilla está oculta; al imprimir se oculta todo
+   el tablero interactivo y solo sale la planilla en blanco y negro.
+   Hay dos variantes:
+     - .planilla-semana  : 7 días (semana actual) — grande y legible
+     - .planilla-compacta: 14 días (todo) — fuente chica para una sola hoja
+   ============================================================ */
+
+.print-only {
+  display: none;
+}
+
+@page {
+  size: A4 landscape;
+  margin: 7mm;
+}
+
+@media print {
+  html,
+  body {
+    background: #ffffff !important;
+  }
+
+  /* Tablero interactivo, header, menú, botones: no salen en la hoja */
+  .no-print {
+    display: none !important;
+  }
+
+  /* Solo se imprime la planilla */
+  .print-only {
+    display: block !important;
+  }
+
+  .planilla-impresion {
+    width: 100%;
+    color: #000;
+    font-family: Arial, Helvetica, "Source Sans 3", sans-serif;
+  }
+
+  .planilla-encabezado {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 2px 6px;
+    margin-bottom: 6px;
+    border-bottom: 2px solid #000;
+  }
+
+  .planilla-escudo {
+    flex-shrink: 0;
+    object-fit: contain;
+    filter: grayscale(1);
+  }
+
+  .planilla-nombre {
+    margin: 0;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    line-height: 1.1;
+  }
+
+  .planilla-titulo {
+    margin: 0;
+    font-weight: 600;
+    line-height: 1.1;
+  }
+
+  .planilla-rango {
+    margin: 0;
+    line-height: 1.1;
+  }
+
+  .planilla-tabla {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+
+  .planilla-tabla th,
+  .planilla-tabla td {
+    border: 1px solid #000;
+    padding: 0 4px;
+    vertical-align: top;
+    text-align: left;
+  }
+
+  .planilla-tabla thead th {
+    font-weight: 700;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .planilla-tabla tbody th {
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .planilla-nombre-linea {
+    white-space: nowrap;
+  }
+
+  .planilla-vacio {
+    color: #444;
+  }
+
+  .planilla-tabla tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* Variante: 7 días (semana) — tipografía grande y cómoda */
+  .planilla-semana {
+    font-size: 11pt;
+  }
+
+  .planilla-semana .planilla-escudo {
+    width: 44px;
+    height: 44px;
+  }
+
+  .planilla-semana .planilla-nombre {
+    font-size: 15pt;
+  }
+
+  .planilla-semana .planilla-titulo {
+    font-size: 13pt;
+  }
+
+  .planilla-semana .planilla-rango {
+    font-size: 11pt;
+  }
+
+  .planilla-semana .planilla-tabla thead th {
+    font-size: 11pt;
+    padding-top: 3px;
+    padding-bottom: 3px;
+  }
+
+  .planilla-semana .planilla-tabla tbody th {
+    font-size: 11pt;
+    width: 88px;
+  }
+
+  .planilla-semana .planilla-tabla tbody td {
+    font-size: 11pt;
+    line-height: 1.2;
+  }
+
+  /* Variante: 14 días (todo) — fuente chica para que entre en una hoja */
+  .planilla-compacta {
+    font-size: 8pt;
+  }
+
+  .planilla-compacta .planilla-escudo {
+    width: 30px;
+    height: 30px;
+  }
+
+  .planilla-compacta .planilla-nombre {
+    font-size: 11pt;
+  }
+
+  .planilla-compacta .planilla-titulo {
+    font-size: 9.5pt;
+  }
+
+  .planilla-compacta .planilla-rango {
+    font-size: 8.5pt;
+  }
+
+  .planilla-compacta .planilla-tabla thead th {
+    font-size: 8pt;
+    padding-top: 1px;
+    padding-bottom: 1px;
+  }
+
+  .planilla-compacta .planilla-tabla tbody th {
+    font-size: 8pt;
+    width: 60px;
+  }
+
+  .planilla-compacta .planilla-tabla tbody td {
+    font-size: 7pt;
+    line-height: 1;
+  }
+}

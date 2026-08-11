@@ -9,7 +9,7 @@ export default function TableroLayout({
     <div className="flex min-h-full flex-col">
       <Header />
       <main className="flex-1">{children}</main>
-      <footer className="pb-4 pt-8 text-center text-xs text-ink-muted/50">
+      <footer className="no-print pb-4 pt-8 text-center text-xs text-ink-muted/50">
         MaxP02 - Vercel
       </footer>
     </div>

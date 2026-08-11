@@ -12,7 +12,7 @@ export async function Header() {
   const cargo = session && isCargo(session.cargo) ? session.cargo : null;
 
   return (
-    <header className="sticky top-0 z-20 border-b border-line bg-surface">
+    <header className="no-print sticky top-0 z-20 border-b border-line bg-surface">
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-2 px-3 py-2 sm:gap-3 sm:px-6 sm:py-3">
         <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           <Image

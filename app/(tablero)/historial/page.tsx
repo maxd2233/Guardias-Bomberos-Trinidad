@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { cargarHistorial } from "@/lib/historial";
+import { ahoraMs, cargarHistorial } from "@/lib/historial";
 import { getSession } from "@/lib/session";
 import { createSupabaseClient } from "@/lib/supabase";
 import { Historial } from "./historial";
@@ -17,5 +17,5 @@ export default async function HistorialPage() {
 
   const entradas = await cargarHistorial(createSupabaseClient());
 
-  return <Historial entradas={entradas} />;
+  return <Historial entradas={entradas} ahoraServer={ahoraMs()} />;
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   cargarHistorial,
+  formatTimestamp,
   tiempoRelativo,
   type HistorialEntry,
   type HistorialTurno,
@@ -44,9 +45,15 @@ function textoEntrada(entrada: HistorialEntry) {
   );
 }
 
-export function Historial({ entradas: iniciales }: { entradas: HistorialEntry[] }) {
+export function Historial({
+  entradas: iniciales,
+  ahoraServer,
+}: {
+  entradas: HistorialEntry[];
+  ahoraServer: number;
+}) {
   const [entradas, setEntradas] = useState(iniciales);
-  const [ahora, setAhora] = useState(() => new Date());
+  const [ahora, setAhora] = useState<Date>(() => new Date(ahoraServer));
 
   const clientRef = useRef<ReturnType<typeof createBrowserSupabaseClient> | null>(
     null
@@ -57,7 +64,10 @@ export function Historial({ entradas: iniciales }: { entradas: HistorialEntry[] 
   }, []);
 
   useEffect(() => {
-    const intervalId = window.setInterval(() => setAhora(new Date()), 60_000);
+    const intervalId = window.setInterval(
+      () => setAhora((prev) => new Date(prev.getTime() + 60_000)),
+      60_000
+    );
     return () => window.clearInterval(intervalId);
   }, []);
 
@@ -106,7 +116,10 @@ export function Historial({ entradas: iniciales }: { entradas: HistorialEntry[] 
                 {textoEntrada(entrada)}
                 <span className="font-mono text-[15px] text-ink-muted">
                   {" "}
-                  — {tiempoRelativo(entrada.timestamp, ahora)}
+                  — {tiempoRelativo(entrada.timestamp, ahora)}{" "}
+                  <span className="whitespace-nowrap">
+                    · {formatTimestamp(entrada.timestamp)}
+                  </span>
                 </span>
               </p>
               {entrada.nota ? (
